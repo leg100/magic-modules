@@ -274,8 +274,17 @@ module Provider
         name = module_name(data[:object])
         path = File.join(target_folder,
                          "test/integration/targets/#{name}/tasks/main.yml")
+        # Generate test.
         generate_resource_file data.clone.merge(
           default_template: 'templates/ansible/integration_test.erb',
+          out_file: path
+        )
+
+        # Generate 'defaults' file that contains variables.
+        path = File.join(target_folder,
+                         "test/integration/targets/#{name}/defaults/main.yml")
+        generate_resource_file data.clone.merge(
+          default_template: 'templates/ansible/integration_test_variables.erb',
           out_file: path
         )
       end
