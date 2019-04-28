@@ -16,6 +16,18 @@ func dataSourceGoogleComputeUsableSubnetworks() *schema.Resource {
 				Computed: true,
 				Optional: true,
 			},
+			"subnets": {
+				Type:     schema.TypeList,
+				Computed: true,
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"self_link": {
+							Type:		schema.TypeString,
+							Computed:	true,
+						},
+					},
+				},
+			},
 		},
 	}
 }
@@ -23,7 +35,7 @@ func dataSourceGoogleComputeUsableSubnetworks() *schema.Resource {
 func datasourceGoogleComputeUsableSubnetsRead(d *schema.ResourceData, meta interface{}) error {
 	config := meta.(*Config)
 
-	subnets := make([]map[string]interface{}, 0)
+	subnets := make([]interface{}, 0)
 
 	project, err := getProject(d, config)
 	if err != nil {
@@ -54,10 +66,12 @@ func datasourceGoogleComputeUsableSubnetsRead(d *schema.ResourceData, meta inter
 	return nil
 }
 
-func flattenUsableSubnets(usableSubnets []*compute.UsableSubnetwork) []map[string]interface{} {
-	attrs := make([]map[string]interface{}, len(usableSubnets))
-	for i, usableSubnet := range usableSubnets {
-		attrs[i]["self_link"] = usableSubnet.Subnetwork
+func flattenUsableSubnets(usableSubnets []*compute.UsableSubnetwork) interface{} {
+	attrs := make([]interface{}, 0, len(usableSubnets))
+	for _, usableSubnet := range usableSubnets {
+		attrs = append(attrs, map[string]interface{}{
+			"self_link": usableSubnet.Subnetwork,
+		})
 	}
 
 	return attrs
