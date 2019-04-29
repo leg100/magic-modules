@@ -2,6 +2,7 @@ package google
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/terraform/helper/schema"
 	"google.golang.org/api/compute/v1"
@@ -9,21 +10,53 @@ import (
 
 func dataSourceGoogleComputeUsableSubnetworks() *schema.Resource {
 	return &schema.Resource{
-		Read: datasourceGoogleComputeUsableSubnetsRead,
+		Read: dataSourceComputeUsableSubnetworksRead,
 		Schema: map[string]*schema.Schema{
 			"project": {
 				Type:     schema.TypeString,
 				Computed: true,
 				Optional: true,
 			},
-			"subnets": {
+			"filter": {
+				Type:     schema.TypeString,
+				Optional: true,
+			},
+			"subnetworks": {
 				Type:     schema.TypeList,
 				Computed: true,
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
-						"self_link": {
-							Type:		schema.TypeString,
-							Computed:	true,
+						"name": {
+							Type:     schema.TypeString,
+							Computed: true,
+						},
+						"region": {
+							Type:     schema.TypeString,
+							Computed: true,
+						},
+						"project": {
+							Type:     schema.TypeString,
+							Computed: true,
+						},
+						"network": {
+							Type:     schema.TypeString,
+							Computed: true,
+						},
+						"secondary_ip_range": {
+							Type:     schema.TypeList,
+							Computed: true,
+							Elem: &schema.Resource{
+								Schema: map[string]*schema.Schema{
+									"range_name": {
+										Type:     schema.TypeString,
+										Computed: true,
+									},
+									"ip_cidr_range": {
+										Type:     schema.TypeString,
+										Computed: true,
+									},
+								},
+							},
 						},
 					},
 				},
@@ -32,10 +65,10 @@ func dataSourceGoogleComputeUsableSubnetworks() *schema.Resource {
 	}
 }
 
-func datasourceGoogleComputeUsableSubnetsRead(d *schema.ResourceData, meta interface{}) error {
+func dataSourceComputeUsableSubnetworksRead(d *schema.ResourceData, meta interface{}) error {
 	config := meta.(*Config)
 
-	subnets := make([]interface{}, 0)
+	subnetworks := make([]interface{}, 0)
 
 	project, err := getProject(d, config)
 	if err != nil {
@@ -43,36 +76,65 @@ func datasourceGoogleComputeUsableSubnetsRead(d *schema.ResourceData, meta inter
 	}
 	d.SetId(project)
 
-	// TODO: filter
+	filter := d.Get("filter")
 
 	token := ""
 	for paginate := true; paginate; {
-		res, err := config.clientCompute.Subnetworks.ListUsable(project).PageToken(token).Do()
-		if err != nil {
-			return fmt.Errorf("Error retrieving usable subnets: %s", err)
+		call := config.clientCompute.Subnetworks.ListUsable(project).PageToken(token)
+
+		if filter != "" {
+			call = call.Filter(filter)
 		}
 
-		pageSubnets := flattenUsableSubnets(res.Items)
-		subnets = append(subnets, pageSubnets...)
+		res, err := call.Do()
+		if err != nil {
+			return fmt.Errorf("Error retrieving usable subnetworks: %s", err)
+		}
+
+		pageSubnetworks := flattenUsableSubnetworks(res.Items)
+		subnetworks = append(subnetworks, pageSubnetworks...)
 
 		token := res.NextPageToken
 		paginate = token != ""
 	}
 
-	if err := d.Set("subnets", subnets); err != nil {
-		return fmt.Errorf("Error retrieving subnets: %s", err)
+	if err := d.Set("subnetworks", subnetworks); err != nil {
+		return fmt.Errorf("Error retrieving subnetworks: %s", err)
 	}
 
 	return nil
 }
 
-func flattenUsableSubnets(usableSubnets []*compute.UsableSubnetwork) interface{} {
-	attrs := make([]interface{}, 0, len(usableSubnets))
-	for _, usableSubnet := range usableSubnets {
-		attrs = append(attrs, map[string]interface{}{
-			"self_link": usableSubnet.Subnetwork,
+func flattenUsableSubnetworks(usableSubnetworks []*compute.UsableSubnetwork) []map[string]interface{} {
+	usableSubnetworksSchema := make([]map[string]interface{}, 0, len(usableSubnetworks))
+	for _, usableSubnetwork := range usableSubnetworks {
+		self_link_segments := strings.Split(usableSubnetwork.Subnetwork, "/")
+
+		data := map[string]interface{}{
+			"name": self_link_segments[8],
+			"region": self_link_segments[7],
+			"project": self_link_segments[4],
+			"self_link": usableSubnetwork.Subnetwork,
+			"ip_cidr_range": usableSubnetwork.IpCidrRange,
+			"network": usableSubnetwork.Network,
+			"secondary_ip_range": flattenSecondaryRanges(usableSubnetwork.SecondaryIpRanges),
 		})
+
+		usableSubnetworksSchema = append(usableSubnetworksSchema, data)
 	}
 
-	return attrs
+	return usableSubnetworksSchema
+}
+
+func flattenSecondaryRanges(secondaryRanges []*compute.UsableSubnetworkSecondaryRange) []map[string]interface{} {
+	secondaryRangesSchema := make([]map[string]interface{}, 0, len(secondaryRanges))
+	for _, secondaryRange := range secondaryRanges {
+		data := map[string]interface{}{
+			"range_name":    secondaryRange.RangeName,
+			"ip_cidr_range": secondaryRange.IpCidrRange,
+		}
+
+		secondaryRangesSchema = append(secondaryRangesSchema, data)
+	}
+	return secondaryRangesSchema
 }
