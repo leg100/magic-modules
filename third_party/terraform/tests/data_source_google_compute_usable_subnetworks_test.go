@@ -4,20 +4,20 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/hashicorp/terraform/helper/acctest"
 	"github.com/hashicorp/terraform/helper/resource"
+	"github.com/hashicorp/terraform/terraform"
 )
 
 func TestAccDataSourceUsableSubnetworks_basic(t *testing.T) {
 	t.Parallel()
-
-	project := getTestProjectFromEnv()
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:  func() { testAccPreCheck(t) },
 		Providers: testAccProviders,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccCheckUsableSubnetworksConfig(project),
+				Config: testAccCheckUsableSubnetworksConfig(),
 				Check: resource.ComposeTestCheckFunc(
 					testAccDataSourceUsableSubnetworksCheck("data.google_compute_usable_subnetworks.subnetworks", "google_compute_subnetwork.subnetwork"),
 				),
@@ -41,16 +41,7 @@ func testAccDataSourceUsableSubnetworksCheck(data_source_name string, resource_n
 		ds_attr := ds.Primary.Attributes
 		rs_attr := rs.Primary.Attributes
 
-		ds_attr_subnetworks, ok := ds_attr["subnetworks"]
-		if !ok {
-			return fmt.Errorf("expected attribute `subnetworks` not set on resource %s", data_source_name)
-		}
-
-		if num_of_subnetworks := len(ds_attr_subnetworks); num_of_subnetworks != 1 {
-			return fmt.Errorf("expected attribute `subnetworks` of resource %s to be a list of one element, but contains %d elements", data_source_name, num_of_subnetworks)
-		}
-
-		subnetwork_attrs_to_test := []string{
+		rs_attr_keys := []string{
 			"name",
 			"region",
 			"project",
@@ -60,26 +51,29 @@ func testAccDataSourceUsableSubnetworksCheck(data_source_name string, resource_n
 			"secondary_ip_range",
 		}
 
-		for _, attr_to_check := range subnetwork_attrs_to_test {
-			if ds_attr_subnetworks[0][attr_to_check] != rs_attr[attr_to_check] {
+		var ds_attr_key string
+		for _, rs_attr_key := range rs_attr_keys {
+			ds_attr_key = fmt.Sprintf("subnetworks.0.%s", rs_attr_key)
+
+			if ds_attr[ds_attr_key] != rs_attr[rs_attr_key] {
 				return fmt.Errorf(
 					"%s is %s; want %s",
-					attr_to_check,
-					ds_attr[attr_to_check],
-					rs_attr[attr_to_check],
+					ds_attr_key,
+					ds_attr[ds_attr_key],
+					rs_attr[rs_attr_key],
 				)
 			}
 		}
 
-		if v1RsNetwork := ConvertSelfLinkToV1(rs_attr["network"]); ds_attr["network"] != v1RsNetwork {
-			return fmt.Errorf("network is %s; want %s", ds_attr["network"], v1RsNetwork)
+		if v1RsNetwork := ConvertSelfLinkToV1(rs_attr["network"]); ds_attr["subnetworks.0.network"] != v1RsNetwork {
+			return fmt.Errorf("network is %s; want %s", ds_attr["subnetworks.0.network"], v1RsNetwork)
 		}
 
 		return nil
 	}
 }
 
-func testAccCheckUsableSubnetworksConfig(project string) string {
+func testAccCheckUsableSubnetworksConfig() string {
 	return fmt.Sprintf(`
 resource "google_compute_network" "network" {
 	name = "%s"
@@ -89,7 +83,7 @@ resource "google_compute_network" "network" {
 resource "google_compute_subnetwork" "subnetwork" {
 	name = "subnetwork-test"
 	ip_cidr_range = "10.0.0.0/24"
-	network  = "${google_compute_network.foobar.self_link}"
+	network  = "${google_compute_network.network.self_link}"
 	secondary_ip_range {
 		range_name = "tf-test-secondary-range"
 		ip_cidr_range = "192.168.1.0/24"

@@ -38,6 +38,14 @@ func dataSourceGoogleComputeUsableSubnetworks() *schema.Resource {
 							Type:     schema.TypeString,
 							Computed: true,
 						},
+						"self_link": {
+							Type:     schema.TypeString,
+							Computed: true,
+						},
+						"ip_cidr_range": {
+							Type:     schema.TypeString,
+							Computed: true,
+						},
 						"network": {
 							Type:     schema.TypeString,
 							Computed: true,
@@ -68,7 +76,7 @@ func dataSourceGoogleComputeUsableSubnetworks() *schema.Resource {
 func dataSourceComputeUsableSubnetworksRead(d *schema.ResourceData, meta interface{}) error {
 	config := meta.(*Config)
 
-	subnetworks := make([]interface{}, 0)
+	subnetworks := make([]map[string]interface{}, 0)
 
 	project, err := getProject(d, config)
 	if err != nil {
@@ -76,15 +84,13 @@ func dataSourceComputeUsableSubnetworksRead(d *schema.ResourceData, meta interfa
 	}
 	d.SetId(project)
 
-	filter := d.Get("filter")
+	filter := d.Get("filter").(string)
 
 	token := ""
 	for paginate := true; paginate; {
-		call := config.clientCompute.Subnetworks.ListUsable(project).PageToken(token)
-
-		if filter != "" {
-			call = call.Filter(filter)
-		}
+		call := config.clientCompute.Subnetworks.ListUsable(project)
+		call = call.PageToken(token)
+		call = call.Filter(filter)
 
 		res, err := call.Do()
 		if err != nil {
@@ -111,14 +117,14 @@ func flattenUsableSubnetworks(usableSubnetworks []*compute.UsableSubnetwork) []m
 		self_link_segments := strings.Split(usableSubnetwork.Subnetwork, "/")
 
 		data := map[string]interface{}{
-			"name": self_link_segments[8],
-			"region": self_link_segments[7],
-			"project": self_link_segments[4],
-			"self_link": usableSubnetwork.Subnetwork,
-			"ip_cidr_range": usableSubnetwork.IpCidrRange,
-			"network": usableSubnetwork.Network,
-			"secondary_ip_range": flattenSecondaryRanges(usableSubnetwork.SecondaryIpRanges),
-		})
+			"name":               self_link_segments[10],
+			"region":             self_link_segments[8],
+			"project":            self_link_segments[6],
+			"self_link":          usableSubnetwork.Subnetwork,
+			"ip_cidr_range":      usableSubnetwork.IpCidrRange,
+			"network":            usableSubnetwork.Network,
+			"secondary_ip_range": flattenUsableSecondaryRanges(usableSubnetwork.SecondaryIpRanges),
+		}
 
 		usableSubnetworksSchema = append(usableSubnetworksSchema, data)
 	}
@@ -126,7 +132,7 @@ func flattenUsableSubnetworks(usableSubnetworks []*compute.UsableSubnetwork) []m
 	return usableSubnetworksSchema
 }
 
-func flattenSecondaryRanges(secondaryRanges []*compute.UsableSubnetworkSecondaryRange) []map[string]interface{} {
+func flattenUsableSecondaryRanges(secondaryRanges []*compute.UsableSubnetworkSecondaryRange) []map[string]interface{} {
 	secondaryRangesSchema := make([]map[string]interface{}, 0, len(secondaryRanges))
 	for _, secondaryRange := range secondaryRanges {
 		data := map[string]interface{}{
@@ -136,5 +142,6 @@ func flattenSecondaryRanges(secondaryRanges []*compute.UsableSubnetworkSecondary
 
 		secondaryRangesSchema = append(secondaryRangesSchema, data)
 	}
+
 	return secondaryRangesSchema
 }
